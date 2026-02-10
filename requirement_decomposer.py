@@ -265,11 +265,13 @@ async def main():
     """主执行函数"""
     # 定义分解规则 (这部分在循环外定义，因为它们是固定的)
     decomposition_rules = [
-        "子需求应当是能分配给单一功能模块的，不可再分的最小原子功能需求。",
-        "子需求必须完全涵盖原始需求的所有内容。",
+        "子需求应当是能分配给单一功能模块的，不可再分的最小原子功能需求，单个需求的内容不得跨越不同功能模块实现。",
         "子需求只是对原始需求的分解而不是细化，不可新增原始需求中没有的内容。",
-        "子需求不得超出原始需求的功能范围。",
-        "子需求应严格保持原始需求中的技术细节，包括算法、协议、版本等，不可额外引入技术，也不可修改原始需求中的相关表述。",        
+        "子需求必须完全涵盖原始需求的所有内容。",
+        "子需求的功能集合不得超出原始需求的功能范围。",
+        "子需求应严格保持原始需求中的技术细节，包括算法、协议、版本等",
+        "原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述",
+        "子需求的性能指标需和原始需求的对应部分保持一致，不得新增或细化"
         # "给定一个复杂需求由动作集合A和场景集合S定义，若存在一个场景s ⊆ S，其中部分动作 {{aₖ,…,aₚ}} 仅在s中出现（即未出现在其他场景中），则可将需求分解为包含这些动作和该特定场景s的需求，以及包含其他动作与其他场景的需求。",
         # "若存在多个场景 S₁ ⊆ S，其中涉及的一组动作在其他场景中都未出现，那么可以将这些场景和相关动作提取成一个新需求，其余场景和动作组成另一个需求。",
         # "当有一组动作在两个需求的所有场景中都出现且完全相同时，可以将这部分提取为新的需求。",
@@ -278,12 +280,16 @@ async def main():
     ]
     format_instruction = None
 
-    all_decomposed_results = [] # 新增：用于存储所有分解结果的列表
+    req_source = 'ar_23/data.json'
+    res_file = 'ar_23/decomposed_output.json'
+
+    all_decomposed_results = [] # 用于存储所有分解结果的列表
 
     # 从JSON文件加载所有原始需求
     print("\n" + "=" * 50)
-    print("步骤 1: 从JSON文件 'ar_23/data.json' 读取所有主需求...")
-    all_original_requirements = load_requirements_from_json('ar_23/data.json', limit=None)
+    
+    print("步骤 1: 从JSON文件 {} 读取所有主需求...", req_source)
+    all_original_requirements = load_requirements_from_json(req_source, limit=None)
 
     if not all_original_requirements:
         print("[ERROR] 未能加载原始需求，终止程序。")
@@ -325,9 +331,9 @@ async def main():
     # 循环结束后，将所有结果保存到一个JSON文件
     if all_decomposed_results:
         # 4a. 保存到JSON文件
-        save_results_to_json(all_decomposed_results, 'ar_23/decomposed_output.json')
+        save_results_to_json(all_decomposed_results, res_file)
     else:
-        print("\n没有成功的需求分解结果，未生成 decomposed_output.json 文件。")
+        print("\n没有成功的需求分解结果，未生成 {} 文件。", res_file)
 
 if __name__ == "__main__":
     # 使用asyncio运行主异步函数

@@ -206,16 +206,19 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# gemini
+gemini.ps1
+
 # temp files
 temp_files
 
 # source requirement data and references
 req
-ar_23/data.xlsx
-ar_23/data.json
+ar_23/data*.xlsx
+ar_23/data*.json
 ar_23/ar_descriptions_ref.json
 
 # stage results
-ar_23/ar_descriptions_1.json
-ar_23/decomposed_output.json
-ar_23/evaluation_output.json
+ar_23/ar_descriptions*.json
+ar_23/decomposed_output*.json
+ar_23/evaluation_output*.json

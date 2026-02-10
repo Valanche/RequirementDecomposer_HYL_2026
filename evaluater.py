@@ -47,10 +47,11 @@ EVALUATION_USER_PROMPT_TEMPLATE = textwrap.dedent("""
     根据以下标准，严格评估原始需求和已分解的子需求之间的一致性。
 
     **评估维度：一致性**
-    - 已分解的子需求必须完全涵盖原始需求的所有内容。
-    - 已分解的子需求不得超出原始需求的功能范围。
-    - 已分解的子需求不得改变原始需求的实现技术，也不得使用原始需求中没有的技术。
-    - 已分解的子需求不得对原始需求进行细化，必须完全忠实于原始需求的内容。
+    - 子需求必须完全涵盖原始需求的所有内容。
+    - 子需求不得超出原始需求的功能范围。
+    - 子需求不得改变原始需求的实现技术，也不得使用原始需求中没有的技术。
+    - 子需求的拆分必须忠实于原始需求，不得对原始需求进行细化，不得出现原始需求中未提及的功能。
+    - 原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述。
 
     **评分标准：**
     - 1 (强烈不同意): 拆解结果与预期标准严重不符，缺失原始需求的大部分内容或包含大量超出范围的功能。
@@ -204,15 +205,20 @@ async def main():
     """主执行函数"""
     print("开始执行评估流程...")
 
+    origin_reqs_file = 'ar_23/data.json'
+    decompose_reqs_file = 'ar_23/decomposed_output.json'
+    evaluation_results_file = 'ar_23/evaluation_output.json'
+
     # 1. 加载原始需求和分解结果
-    original_reqs_map = load_original_requirements_from_json('ar_23/data.json')
-    decomposed_data = load_decomposed_results('ar_23/decomposed_output.json')
+    original_reqs_map = load_original_requirements_from_json(origin_reqs_file)
+    decomposed_data = load_decomposed_results(decompose_reqs_file)
 
     if not original_reqs_map or not decomposed_data:
         print("[ERROR] 加载数据失败，终止评估。")
         return
 
     all_evaluations = []
+    score_sum = 0
 
     # 2. 迭代处理每个分解结果
     for result_item in decomposed_data:
@@ -243,18 +249,21 @@ async def main():
                 "row_number": row_num,
                 "evaluation": evaluation
             })
+            score_sum += evaluation["score"]
             print(f"第 {row_num} 行评估完成。")
         else:
             print(f"未能为第 {row_num} 行获取评估结果。")
 
     # 4. 显示所有评估结果
     if all_evaluations:
+        avg_score = score_sum / len(all_evaluations)
+        all_evaluations.append({"avg_score": avg_score})
         print("\n" + "="*60)
         print("所有评估已完成！最终结果如下：")
         print(json.dumps(all_evaluations, indent=2, ensure_ascii=False))
         print("="*60)
         # Optionally, save to a file
-        with open('ar_23/evaluation_output.json', 'w', encoding='utf-8') as f:
+        with open(evaluation_results_file, 'w', encoding='utf-8') as f:
             json.dump(all_evaluations, f, indent=2, ensure_ascii=False)
         print("评估结果已保存到 ar_23/evaluation_output.json")
     else:
