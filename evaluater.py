@@ -44,14 +44,16 @@ EVALUATION_SYSTEM_PROMPT = textwrap.dedent(f"""
 """)
 
 EVALUATION_USER_PROMPT_TEMPLATE = textwrap.dedent("""
-    根据以下标准，严格评估原始需求和已分解的子需求之间的一致性。
+    根据以下标准，严格评估原始需求和已分解的子需求之间的一致性。子需求之间的一致性不需要考虑。
 
     **评估维度：一致性**
     - 子需求必须完全涵盖原始需求的所有内容。
     - 子需求不得超出原始需求的功能范围。
-    - 子需求不得改变原始需求的实现技术，也不得使用原始需求中没有的技术。
-    - 子需求的拆分必须忠实于原始需求，不得对原始需求进行细化，不得出现原始需求中未提及的功能。
+    - 子需求的拆分必须忠实于原始需求文本，不得出现原始需求中未提及的功能或名词。
+    - 子需求不得改变原始需求的实现技术，也不得使用原始需求中没有明确提及的技术，所有技术必须与原始需求逐字对应，不得有任何形式的推断或具象化，不得采用任何默认标准。
+    - 子需求的外部依赖应从原始需求的外部依赖中根据自身具体依赖情况选择性继承，但不能新增原始需求中没有的依赖。
     - 原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述。
+    - 原始需求中的性能指标、ROMRAM要求允许被合理拆分到子需求中，但不得添加原本没有的指标。
 
     **评分标准：**
     - 1 (强烈不同意): 拆解结果与预期标准严重不符，缺失原始需求的大部分内容或包含大量超出范围的功能。
@@ -93,7 +95,8 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            temperature=0
         )
         
         print("--- [INFO] ---")
@@ -205,7 +208,7 @@ async def main():
     """主执行函数"""
     print("开始执行评估流程...")
 
-    origin_reqs_file = 'ar_23/data.json'
+    origin_reqs_file = 'ar_23/data_ds1.json'
     decompose_reqs_file = 'ar_23/decomposed_output.json'
     evaluation_results_file = 'ar_23/evaluation_output.json'
 

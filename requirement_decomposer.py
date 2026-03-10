@@ -129,32 +129,29 @@ def _build_system_prompt() -> str:
         你是一个顶级的软件需求工程师。你的任务是根据用户提供的复杂需求、分解规则和格式定义，将需求分解为一系列粒度更小的子需求。在这一过程中，你只负责分解而不负责细化，不允许添加细节。
         你必须以扁平化的列表结构返回结果。
 
-        你必须严格遵循以下的格式定义来构造你的输出：
+        ## 输出格式
+        你必须严格遵循以下需求格式定义和JSON Schema来构造你的输出。你的响应必须是一个**JSON数组**，数组中的每个元素都是一个完整的子需求对象。                 
+       
         --- 需求格式定义 ---
         {REQ_FORMAT_CONTENT}
         --- 需求格式定义结束 ---
-
-        你必须严格按照以下 JSON Schema 结构来构建你的输出。你的响应必须是一个单一的 JSON 数组，且完全符合此结构定义：
-
+        --- JSON Schema定义 ---
         ```json
         {JSON_SCHEMA_DEFINITION}
         ```
+        --- JSON Schema定义结束 ---
     """)
 
 def _build_user_prompt(
     original_requirement: str,
-    rules: Optional[List[str]],
+    rules: List[str],
     output_format_instruction: Optional[str]
 ) -> str:
-    # ... (此函数内容不变) ...
-    prompt_parts = [
-        "根据已定义的规则，分解以下原始需求。",
-    ]
+    prompt_parts = []
 
-    if rules:
-        prompt_parts.append("\n=== 分解规则 ===")
-        for i, rule in enumerate(rules, 1):
-            prompt_parts.append(f"{i}. {rule}")
+    prompt_parts.append("\n=== 分解规则 ===")
+    for i, rule in enumerate(rules, 1):
+        prompt_parts.append(f"{i}. {rule}")
 
     prompt_parts.append("\n=== 原始需求 ===")
     prompt_parts.append(original_requirement)
@@ -189,7 +186,8 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            response_format={"type": "json_object"}    
+            response_format={"type": "json_object"},
+            temperature=0   
         )
         
         print("--- [INFO] ---")
@@ -213,7 +211,7 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
 
 async def decompose_requirement(
     original_requirement: str,
-    rules: Optional[List[str]] = None,
+    rules: List[str] = None,
     output_format_instruction: Optional[str] = None,
 ) -> Optional[List[Dict]]:
     # ... (此函数内容不变) ...
@@ -266,21 +264,20 @@ async def main():
     # 定义分解规则 (这部分在循环外定义，因为它们是固定的)
     decomposition_rules = [
         "子需求应当是能分配给单一功能模块的，不可再分的最小原子功能需求，单个需求的内容不得跨越不同功能模块实现。",
-        "子需求只是对原始需求的分解而不是细化，不可新增原始需求中没有的内容。",
-        "子需求必须完全涵盖原始需求的所有内容。",
+        "子需求只是对原始需求的分解而不是细化，需求描述中不可新增原始需求中没有的内容。",
+        "子需求描述的内容必须完全涵盖原始需求描述的所有内容。",
         "子需求的功能集合不得超出原始需求的功能范围。",
-        "子需求应严格保持原始需求中的技术细节，包括算法、协议、版本等",
-        "原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述",
-        "子需求的性能指标需和原始需求的对应部分保持一致，不得新增或细化"
-        # "给定一个复杂需求由动作集合A和场景集合S定义，若存在一个场景s ⊆ S，其中部分动作 {{aₖ,…,aₚ}} 仅在s中出现（即未出现在其他场景中），则可将需求分解为包含这些动作和该特定场景s的需求，以及包含其他动作与其他场景的需求。",
-        # "若存在多个场景 S₁ ⊆ S，其中涉及的一组动作在其他场景中都未出现，那么可以将这些场景和相关动作提取成一个新需求，其余场景和动作组成另一个需求。",
-        # "当有一组动作在两个需求的所有场景中都出现且完全相同时，可以将这部分提取为新的需求。",
-        # "如果两个需求共享的一组动作只在部分场景中出现，而非全部场景，可以提取这些动作形成一个新需求。",
-        # "若需求A的动作集合是需求B的子集，且场景集合也是其子集，则需求A可定义为需求B的子需求，仅保留变动的部分。",
+        "子需求的需求价值和需求场景应根据原始需求进行拆分，但不得超出原始需求的场景范围",
+        "子需求的性能指标和ROMRAM要求应根据原始需求进行拆分，但必须忠实于原始需求的内容，不得新增项目或指标",
+        "子需求应严格保持原始需求中的技术细节，包括算法、协议、版本等，不得有任何形式的推断或补充。",
+        "原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述"
+        # "子需求之间可能存在调用关系，必须通过外部依赖字段明确标注；依赖标注不得影响需求的原子性，仅用于说明调用关系"
+        
+        
     ]
     format_instruction = None
 
-    req_source = 'ar_23/data.json'
+    req_source = 'ar_23/data_ds1.json'
     res_file = 'ar_23/decomposed_output.json'
 
     all_decomposed_results = [] # 用于存储所有分解结果的列表
@@ -333,7 +330,7 @@ async def main():
         # 4a. 保存到JSON文件
         save_results_to_json(all_decomposed_results, res_file)
     else:
-        print("\n没有成功的需求分解结果，未生成 {} 文件。", res_file)
+        print(f"\n没有成功的需求分解结果，未生成 {res_file} 文件。")
 
 if __name__ == "__main__":
     # 使用asyncio运行主异步函数

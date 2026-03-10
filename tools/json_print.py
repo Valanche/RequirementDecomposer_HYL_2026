@@ -10,16 +10,20 @@ def print_decomp(file_path: str, row_id: Optional[str] = None):
     if row_id is None:
         for item in data:
             print(item["row_number"])
-            for sub_req in item["decomposed_list"]:
-                print(sub_req["description"])
+            for idx, sub_req in enumerate(item["decomposed_list"]) :
+                print(f"=== {idx+1} ===")
+                desText = sub_req["description"].replace("\\n", "\n")
+                print(desText)
     else:
         for item in data:
             if int(item["row_number"]) == int(row_id):
-                for sub_req in item["decomposed_list"]:
-                    print(sub_req["description"])
+                for idx, sub_req in enumerate(item["decomposed_list"]) :
+                    print(f"=== {idx+1} ===")
+                    desText = sub_req["description"].replace("\\n", "\n")
+                    print(desText)
                 break
 
 
 if __name__ == '__main__':
-    print_decomp("ar_23/decomposed_output.json", "65") 
+    print_decomp("ar_23/decomposed_output_5.json", "65") 
     
