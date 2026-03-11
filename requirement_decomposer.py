@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
 import json
-import uuid
+import logging
 import os
 import asyncio
 from typing import List, Dict, Optional
 import textwrap
+
+import utils
 
 # 新增的依赖，需要 pip install openpyxl
 try:
@@ -20,7 +22,9 @@ from dotenv import load_dotenv
 
 # --- 初始化 ---
 # 从 .env 文件加载环境变量 (OPENAI_API_KEY, etc.)
+
 load_dotenv()
+logger = logging.getLogger("decomposer")
 
 # --- 常量定义 ---
 REQ_FORMAT_CONTENT = textwrap.dedent("""
@@ -70,7 +74,7 @@ JSON_SCHEMA_DEFINITION = textwrap.dedent("""\
     "properties": {
       "id": {
         "type": "string",
-        "description": "子需求的唯一标识符 (UUID)。"
+        "description": "子需求的编号，格式如'req-0001'"
       },
       "description": {
         "type": "string",
@@ -84,45 +88,6 @@ JSON_SCHEMA_DEFINITION = textwrap.dedent("""\
 
 # --- 核心函数 ---
 
-
-
-# --- 核心函数 ---
-
-def load_requirements_from_json(file_path: str, limit: Optional[int] = None) -> Optional[List[Dict]]:
-    """
-    从JSON文件中加载原始需求列表。
-
-    Args:
-        file_path (str): JSON文件的路径。
-        limit (Optional[int]): 可选参数，指定读取文件的前多少个需求。
-
-    Returns:
-        Optional[List[Dict]]: 包含'row'和'req'的字典列表，或None。
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            if isinstance(data, list) and all(isinstance(item, dict) and 'row' in item and 'req' in item for item in data):
-                if limit is not None and limit > 0:
-                    data = data[:limit]
-                    print(f"--- [INFO] ---")
-                    print(f"成功从 '{file_path}' 中读取前 {len(data)} 条需求。")
-                else:
-                    print(f"--- [INFO] ---")
-                    print(f"成功从 '{file_path}' 中读取 {len(data)} 条需求。")
-                return data
-            else:
-                print(f"[ERROR] JSON文件 '{file_path}' 格式不符合预期，应为包含'row'和'req'字段的字典列表。")
-                return None
-    except FileNotFoundError:
-        print(f"[ERROR] JSON文件未找到: {file_path}")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"[ERROR] 解析JSON文件时发生错误: {file_path} - {e}")
-        return None
-    except Exception as e:
-        print(f"[ERROR] 读取JSON文件时发生未知错误: {e}")
-        return None
 
 def _build_system_prompt() -> str:
     return textwrap.dedent(f"""
@@ -145,7 +110,7 @@ def _build_system_prompt() -> str:
 def _build_user_prompt(
     original_requirement: str,
     rules: List[str],
-    output_format_instruction: Optional[str]
+    specific_instruction: Optional[str]
 ) -> str:
     prompt_parts = []
 
@@ -156,29 +121,27 @@ def _build_user_prompt(
     prompt_parts.append("\n=== 原始需求 ===")
     prompt_parts.append(original_requirement)
 
-    if output_format_instruction:
-        prompt_parts.append("\n=== 额外输出要求 ===")
-        prompt_parts.append(output_format_instruction)
+    if specific_instruction:
+        prompt_parts.append("\n=== 额外要求 ===")
+        prompt_parts.append(specific_instruction)
+        logger.info(f"携带额外要求：{specific_instruction}")
 
-    return "\n".join(prompt_parts)
-
+    return '\n'.join(prompt_parts)
 
 async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
-    # ... (此函数内容不变) ...
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY_DECOMPOSE")
     if not api_key:
-        print("[ERROR] 未找到OPENAI_API_KEY环境变量。请确保在.env文件中或环境中已设置。\n")
+        logger.error("未找到OPENAI_API_KEY_DECOMPOSE环境变量。请确保在.env文件中或环境中已设置。\n")
         return None
 
     try:
-        base_url = os.getenv("OPENAI_BASE_URL") or None
+        base_url = os.getenv("OPENAI_BASE_URL_DECOMPOSE") or None
         # 使用异步客户端
         client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
         
-        model_name = os.getenv("OPENAI_MODEL_NAME", "qwen-plus")
+        model_name = os.getenv("OPENAI_MODEL_NAME_DECOMPOSE", "qwen-plus")
 
-        print("--- [INFO] ---")
-        print(f"正在调用OpenAI API (模型: {model_name})，请稍候...")
+        logger.info(f"正在调用模型: {model_name})")
 
         response = await client.chat.completions.create(
             model=model_name,
@@ -190,91 +153,51 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
             temperature=0   
         )
         
-        print("--- [INFO] ---")
-        print("API调用成功。\n")
-        
         return response.choices[0].message.content
 
     except openai.APIConnectionError as e:
-        print(f"[ERROR] OpenAI API请求失败：无法连接到服务器。 {e.__cause__}\n")
+        logger.exception("OpenAI API请求失败：无法连接到服务器。")
     except openai.RateLimitError as e:
-        print(f"[ERROR] OpenAI API请求因速率限制而被拒绝。\n")
+        logger.exception("OpenAI API请求因速率限制而被拒绝。")
     except openai.AuthenticationError as e:
-        print(f"[ERROR] OpenAI API请求认证失败，请检查您的API密钥。\n")
+        logger.exception("OpenAI API请求认证失败，请检查您的API密钥。")
     except openai.APIStatusError as e:
-        print(f"[ERROR] OpenAI API返回了非200的状态码：{e.status_code} - {e.response}\n")
+        logger.exception("OpenAI API返回了非200的状态码：")
     except Exception as e:
-        print(f"[ERROR] 调用API时发生未知错误: {e}\n")
+        logger.exception("调用API时发生未知错误:")
         
     return None
 
 
 async def decompose_requirement(
     original_requirement: str,
-    rules: List[str] = None,
-    output_format_instruction: Optional[str] = None,
+    rules: List[str],
+    specific_instruction: Optional[str] = None,
 ) -> Optional[List[Dict]]:
-    # ... (此函数内容不变) ...
-    # 1. 构建提示
-    system_prompt = _build_system_prompt()
-    user_prompt = _build_user_prompt(original_requirement, rules, output_format_instruction)
 
-    # 2. (真实)调用LLM API
+    system_prompt = _build_system_prompt()
+    user_prompt = _build_user_prompt(original_requirement, rules, specific_instruction)
+
     llm_response_str = await _call_llm_api(system_prompt, user_prompt)
 
     if not llm_response_str:
         return None
 
-    # 3. 解析结果
     try:
         sub_requirements_list = json.loads(llm_response_str)
         if isinstance(sub_requirements_list, list):
             return sub_requirements_list
         else:
-            print(f"[ERROR] LLM返回的不是一个有效的JSON数组: {sub_requirements_list}\n")
+            logger.error(f"LLM返回的不是一个有效的JSON数组: {sub_requirements_list}\n")
             return None
     except json.JSONDecodeError as e:
-        print(f"[ERROR] 解析LLM响应时发生JSON错误: {e}\n")
-        print(f"原始响应内容: {llm_response_str}\n")
+        logger.exception(f"解析LLM响应时发生JSON错误, 原始响应内容: {llm_response_str}")
         return None
-
-def save_results_to_json(results: List[Dict], output_path: str):
-    """
-    将需求列表保存为格式化的JSON文件。
-
-    Args:
-        results (List[Dict]): 包含所有行分解结果的列表。
-        output_path (str): 输出的JSON文件路径。
-    """
-    try:
-        print("\n" + "=" * 50)
-        print(f"步骤 3: 将所有结果保存到JSON文件 '{output_path}'...")
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-            
-        print(f"--- [INFO] ---")
-        print(f"结果已成功保存。")
-
-    except Exception as e:
-        print(f"[ERROR] 保存JSON文件时发生未知错误: {e}")
 
 async def main():
     """主执行函数"""
-    # 定义分解规则 (这部分在循环外定义，因为它们是固定的)
-    decomposition_rules = [
-        "子需求应当是能分配给单一功能模块的，不可再分的最小原子功能需求，单个需求的内容不得跨越不同功能模块实现。",
-        "子需求只是对原始需求的分解而不是细化，需求描述中不可新增原始需求中没有的内容。",
-        "子需求描述的内容必须完全涵盖原始需求描述的所有内容。",
-        "子需求的功能集合不得超出原始需求的功能范围。",
-        "子需求的需求价值和需求场景应根据原始需求进行拆分，但不得超出原始需求的场景范围",
-        "子需求的性能指标和ROMRAM要求应根据原始需求进行拆分，但必须忠实于原始需求的内容，不得新增项目或指标",
-        "子需求应严格保持原始需求中的技术细节，包括算法、协议、版本等，不得有任何形式的推断或补充。",
-        "原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述"
-        # "子需求之间可能存在调用关系，必须通过外部依赖字段明确标注；依赖标注不得影响需求的原子性，仅用于说明调用关系"
-        
-        
-    ]
+
+    decomposition_rules = utils.load_active_rules_from_json("rules/decomposition.json")
     format_instruction = None
 
     req_source = 'ar_23/data_ds1.json'
@@ -286,7 +209,7 @@ async def main():
     print("\n" + "=" * 50)
     
     print("步骤 1: 从JSON文件 {} 读取所有主需求...", req_source)
-    all_original_requirements = load_requirements_from_json(req_source, limit=None)
+    all_original_requirements = utils.load_requirements_from_json(req_source, limit=None)
 
     if not all_original_requirements:
         print("[ERROR] 未能加载原始需求，终止程序。")
@@ -311,7 +234,7 @@ async def main():
         decomposed_list = await decompose_requirement(
             original_requirement=main_requirement,
             rules=decomposition_rules,
-            output_format_instruction=format_instruction,
+            specific_instruction=format_instruction,
         )
 
         # 3. 处理结果
@@ -328,11 +251,10 @@ async def main():
     # 循环结束后，将所有结果保存到一个JSON文件
     if all_decomposed_results:
         # 4a. 保存到JSON文件
-        save_results_to_json(all_decomposed_results, res_file)
+        utils.save_results_to_json(all_decomposed_results, res_file)
     else:
         print(f"\n没有成功的需求分解结果，未生成 {res_file} 文件。")
 
 if __name__ == "__main__":
-    # 使用asyncio运行主异步函数
     asyncio.run(main())
 

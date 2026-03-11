@@ -8,6 +8,7 @@ import textwrap
 
 import openai
 from dotenv import load_dotenv
+import utils
 
 # --- 初始化 ---
 # 从 .env 文件加载环境变量 (OPENAI_API_KEY, etc.)
@@ -47,13 +48,7 @@ EVALUATION_USER_PROMPT_TEMPLATE = textwrap.dedent("""
     根据以下标准，严格评估原始需求和已分解的子需求之间的一致性。子需求之间的一致性不需要考虑。
 
     **评估维度：一致性**
-    - 子需求必须完全涵盖原始需求的所有内容。
-    - 子需求不得超出原始需求的功能范围。
-    - 子需求的拆分必须忠实于原始需求文本，不得出现原始需求中未提及的功能或名词。
-    - 子需求不得改变原始需求的实现技术，也不得使用原始需求中没有明确提及的技术，所有技术必须与原始需求逐字对应，不得有任何形式的推断或具象化，不得采用任何默认标准。
-    - 子需求的外部依赖应从原始需求的外部依赖中根据自身具体依赖情况选择性继承，但不能新增原始需求中没有的依赖。
-    - 原始需求中为“无”等无内容表述的字段，子需求中也保持为“无”等表述。
-    - 原始需求中的性能指标、ROMRAM要求允许被合理拆分到子需求中，但不得添加原本没有的指标。
+    {consistency_rules}
 
     **评分标准：**
     - 1 (强烈不同意): 拆解结果与预期标准严重不符，缺失原始需求的大部分内容或包含大量超出范围的功能。
@@ -76,15 +71,15 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
     """
     异步调用OpenAI聊天模型API。
     """
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("OPENAI_API_KEY_CONSISTENCY")
     if not api_key:
-        print("[ERROR] 未找到OPENAI_API_KEY环境变量。请确保在.env文件中或环境中已设置。")
+        print("[ERROR] 未找到OPENAI_API_KEY_CONSISTENCY环境变量。请确保在.env文件中或环境中已设置。")
         return None
 
     try:
-        base_url = os.getenv("OPENAI_BASE_URL") or None
+        base_url = os.getenv("OPENAI_BASE_URL_CONSISTENCY") or None
         client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
-        model_name = os.getenv("OPENAI_MODEL_NAME", "qwen-plus")
+        model_name = os.getenv("OPENAI_MODEL_NAME_CONSISTENCY", "qwen-plus")
 
         print(f"--- [INFO] ---")
         print(f"正在调用评估模型 (模型: {model_name})，请稍候...")
@@ -119,6 +114,7 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
 
 def _build_evaluation_user_prompt(
     original_requirement: str,
+    evaluation_rules: List[str],
     decomposed_requirements: List[Dict]
 ) -> str:
     """
@@ -126,13 +122,16 @@ def _build_evaluation_user_prompt(
     """
     decomposed_text = "\n".join([f"- {item['description']}" for item in decomposed_requirements])
     
+
     prompt = EVALUATION_USER_PROMPT_TEMPLATE.format(
+        consistency_rules= "\n".join([f"- {item}" for item in evaluation_rules]),
         original_requirement=original_requirement,
         decomposed_requirements=decomposed_text
     )
     return prompt
 
-async def evaluate_decomposition(
+async def evaluate_consistency(
+    rules: List[str],
     original_requirement: str,
     decomposed_requirements: List[Dict]
 ) -> Optional[Dict]:
@@ -147,7 +146,8 @@ async def evaluate_decomposition(
         Optional[Dict]: LLM返回的评估结果（JSON对象）。
     """
     system_prompt = EVALUATION_SYSTEM_PROMPT
-    user_prompt = _build_evaluation_user_prompt(original_requirement, decomposed_requirements)
+
+    user_prompt = _build_evaluation_user_prompt(original_requirement, rules, decomposed_requirements)
 
     llm_response_str = await _call_llm_api(system_prompt, user_prompt)
 
@@ -227,6 +227,7 @@ async def main():
     for result_item in decomposed_data:
         row_num = result_item.get("row_number")
         decomposed_list = result_item.get("decomposed_list")
+        rules = utils.load_active_rules_from_json("rules/consistency.json")
 
         if not row_num or not decomposed_list:
             print(f"[WARNING] 跳过无效的分解结果项: {result_item}")
@@ -242,7 +243,8 @@ async def main():
         print(f"正在评估第 {row_num} 行的分解结果...")
         
         # 3. 执行评估
-        evaluation = await evaluate_decomposition(
+        evaluation = await evaluate_consistency(
+            rules=rules,
             original_requirement=original_req,
             decomposed_requirements=decomposed_list
         )
