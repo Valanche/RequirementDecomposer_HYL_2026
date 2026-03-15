@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import json
+import logging
 import os
 import asyncio
 from typing import List, Dict, Optional
@@ -13,6 +14,8 @@ import utils
 # --- 初始化 ---
 # 从 .env 文件加载环境变量 (OPENAI_API_KEY, etc.)
 load_dotenv()
+
+logger = logging.getLogger("evaluater.consistency")
 
 # --- 常量定义 ---
 EVALUATION_JSON_SCHEMA = textwrap.dedent("""
@@ -28,6 +31,10 @@ EVALUATION_JSON_SCHEMA = textwrap.dedent("""
     "justification": {
       "type": "string",
       "description": "针对评分的简要说明。"
+    },
+    "instruction": {
+      "type": "string",
+      "description": "针对当前拆分结果的修改意见"
     }
   },
   "required": ["score", "justification"]
@@ -35,8 +42,8 @@ EVALUATION_JSON_SCHEMA = textwrap.dedent("""
 """)
 
 EVALUATION_SYSTEM_PROMPT = textwrap.dedent(f"""
-    你是一个软件工程和需求分析的顶级专家，对于需求的一致性非常严格。
-    你的任务是评估一个已分解的需求与原始需求之间的一致性。
+    你是一个软件工程和需求分析的顶级专家，对于需求的一致性非常严格，但是对于需求场景与需求价值的表述相对宽松
+    你的任务是评估一组已分解的需求与原始需求之间的一致性，并给出针对性的修改意见。
     你必须严格按照以下 JSON Schema 结构来构建你的输出。你的响应必须是一个完全符合此结构定义的单一JSON对象。
 
     ```json
@@ -46,7 +53,8 @@ EVALUATION_SYSTEM_PROMPT = textwrap.dedent(f"""
 
 EVALUATION_USER_PROMPT_TEMPLATE = textwrap.dedent("""
     根据以下标准，严格评估原始需求和已分解的子需求之间的一致性。子需求之间的一致性不需要考虑。
-
+    对于拆解结果中的错误，你需要给出针对性的修改意见，使根据意见重新分解后的需求能获得更高的评分。
+    修改意见应针对性的要求避免当前结果中出现的错误，格式如“不准出现……必须包含……”。修改意见也不允许要求增添原始需求中没有的内容。
     **评估维度：一致性**
     {consistency_rules}
 
@@ -73,7 +81,7 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
     """
     api_key = os.getenv("OPENAI_API_KEY_CONSISTENCY")
     if not api_key:
-        print("[ERROR] 未找到OPENAI_API_KEY_CONSISTENCY环境变量。请确保在.env文件中或环境中已设置。")
+        logger.error("未找到OPENAI_API_KEY_CONSISTENCY环境变量。请确保在.env文件中或环境中已设置。")
         return None
 
     try:
@@ -81,8 +89,7 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
         client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
         model_name = os.getenv("OPENAI_MODEL_NAME_CONSISTENCY", "qwen-plus")
 
-        print(f"--- [INFO] ---")
-        print(f"正在调用评估模型 (模型: {model_name})，请稍候...")
+        logger.info(f"正在调用评估模型 (模型: {model_name})，请稍候...")
 
         response = await client.chat.completions.create(
             model=model_name,
@@ -94,25 +101,22 @@ async def _call_llm_api(system_prompt: str, user_prompt: str) -> Optional[str]:
             temperature=0
         )
         
-        print("--- [INFO] ---")
-        print("API调用成功。")
-        
         return response.choices[0].message.content
 
     except openai.APIConnectionError as e:
-        print(f"[ERROR] OpenAI API请求失败：无法连接到服务器。 {e.__cause__}")
+        logger.error(f"OpenAI API请求失败：无法连接到服务器。 {e.__cause__}")
     except openai.RateLimitError:
-        print(f"[ERROR] OpenAI API请求因速率限制而被拒绝。")
+        logger.error(f"OpenAI API请求因速率限制而被拒绝。")
     except openai.AuthenticationError:
-        print(f"[ERROR] OpenAI API请求认证失败，请检查您的API密钥。")
+        logger.error(f"OpenAI API请求认证失败，请检查您的API密钥。")
     except openai.APIStatusError as e:
-        print(f"[ERROR] OpenAI API返回了非200的状态码：{e.status_code} - {e.response}")
+        logger.error(f"OpenAI API返回了非200的状态码：{e.status_code} - {e.response}")
     except Exception as e:
-        print(f"[ERROR] 调用API时发生未知错误: {e}")
+        logger.error(f"调用API时发生未知错误: {e}")
         
     return None
 
-def _build_evaluation_user_prompt(
+def _build_consistency_evaluation_user_prompt(
     original_requirement: str,
     evaluation_rules: List[str],
     decomposed_requirements: List[Dict]
@@ -147,7 +151,7 @@ async def evaluate_consistency(
     """
     system_prompt = EVALUATION_SYSTEM_PROMPT
 
-    user_prompt = _build_evaluation_user_prompt(original_requirement, rules, decomposed_requirements)
+    user_prompt = _build_consistency_evaluation_user_prompt(original_requirement, rules, decomposed_requirements)
 
     llm_response_str = await _call_llm_api(system_prompt, user_prompt)
 
@@ -156,10 +160,12 @@ async def evaluate_consistency(
 
     try:
         evaluation_result = json.loads(llm_response_str)
+        consistency_score = evaluation_result["score"]
+        logger.info(f"一致性评估分数为{consistency_score}")
         return evaluation_result
     except json.JSONDecodeError as e:
-        print(f"[ERROR] 解析评估结果时发生JSON错误: {e}")
-        print(f"原始响应内容: {llm_response_str}")
+        logger.error(f"解析评估结果时发生JSON错误: {e}")
+        logger.error(f"原始响应内容: {llm_response_str}")
         return None
 
 def load_decomposed_results(file_path: str) -> Optional[List[Dict]]:
@@ -170,10 +176,10 @@ def load_decomposed_results(file_path: str) -> Optional[List[Dict]]:
             print(f"从 '{file_path}' 加载分解结果...")
             return json.load(f)
     except FileNotFoundError:
-        print(f"[ERROR] 分解结果文件未找到: {file_path}")
+        print(f"分解结果文件未找到: {file_path}")
         return None
     except json.JSONDecodeError:
-        print(f"[ERROR] 解析分解结果文件时出错: {file_path}")
+        print(f"解析分解结果文件时出错: {file_path}")
         return None
 
 def load_original_requirements_from_json(file_path: str) -> Optional[Dict[int, str]]:
@@ -195,18 +201,16 @@ def load_original_requirements_from_json(file_path: str) -> Optional[Dict[int, s
                 print(f"成功从 '{file_path}' 中读取 {len(req_map)} 条原始需求并构建映射。")
                 return req_map
             else:
-                print(f"[ERROR] JSON文件 '{file_path}' 格式不符合预期。")
+                print(f"JSON文件 '{file_path}' 格式不符合预期。")
                 return None
     except FileNotFoundError:
-        print(f"[ERROR] JSON文件未找到: {file_path}")
+        print(f"JSON文件未找到: {file_path}")
         return None
     except json.JSONDecodeError as e:
-        print(f"[ERROR] 解析JSON文件时发生错误: {file_path} - {e}")
+        print(f"解析JSON文件时发生错误: {file_path} - {e}")
         return None
 
 async def main():
-    """主执行函数"""
-    print("开始执行评估流程...")
 
     origin_reqs_file = 'ar_23/data_ds1.json'
     decompose_reqs_file = 'ar_23/decomposed_output.json'
@@ -217,7 +221,7 @@ async def main():
     decomposed_data = load_decomposed_results(decompose_reqs_file)
 
     if not original_reqs_map or not decomposed_data:
-        print("[ERROR] 加载数据失败，终止评估。")
+        logger.error("加载数据失败，终止评估。")
         return
 
     all_evaluations = []
@@ -230,17 +234,16 @@ async def main():
         rules = utils.load_active_rules_from_json("rules/consistency.json")
 
         if not row_num or not decomposed_list:
-            print(f"[WARNING] 跳过无效的分解结果项: {result_item}")
+            logger.warning(f"[WARNING] 跳过无效的分解结果项: {result_item}")
             continue
 
         original_req = original_reqs_map.get(row_num)
 
         if not original_req:
-            print(f"[WARNING] 未能为第 {row_num} 行找到对应的原始需求，跳过评估。")
+            logger.warning(f"[WARNING] 未能为第 {row_num} 行找到对应的原始需求，跳过评估。")
             continue
         
-        print(f"\n" + "#"*50)
-        print(f"正在评估第 {row_num} 行的分解结果...")
+        logger.info(f"正在评估第 {row_num} 行的分解结果...")
         
         # 3. 执行评估
         evaluation = await evaluate_consistency(
@@ -255,24 +258,20 @@ async def main():
                 "evaluation": evaluation
             })
             score_sum += evaluation["score"]
-            print(f"第 {row_num} 行评估完成。")
         else:
-            print(f"未能为第 {row_num} 行获取评估结果。")
+            logger.warning(f"未能为第 {row_num} 行获取评估结果。")
 
     # 4. 显示所有评估结果
     if all_evaluations:
         avg_score = score_sum / len(all_evaluations)
         all_evaluations.append({"avg_score": avg_score})
-        print("\n" + "="*60)
-        print("所有评估已完成！最终结果如下：")
         print(json.dumps(all_evaluations, indent=2, ensure_ascii=False))
-        print("="*60)
         # Optionally, save to a file
         with open(evaluation_results_file, 'w', encoding='utf-8') as f:
             json.dump(all_evaluations, f, indent=2, ensure_ascii=False)
-        print("评估结果已保存到 ar_23/evaluation_output.json")
+        logger.info(f"评估结果已保存到 {evaluation_results_file}")
     else:
-        print("\n没有生成任何评估结果。")
+        logger.warning("\n没有生成任何评估结果。")
 
 
 if __name__ == "__main__":
