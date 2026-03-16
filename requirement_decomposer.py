@@ -181,6 +181,7 @@ async def decompose_requirement(
     llm_response_str = await _call_llm_api(system_prompt, user_prompt)
 
     if not llm_response_str:
+        logger.error("LLM no response")
         return None
 
     try:
@@ -200,14 +201,13 @@ async def main():
     decomposition_rules = utils.load_active_rules_from_json("rules/decomposition.json")
     format_instruction = None
 
-    req_source = 'ar_23/data_ds1.json'
-    res_file = 'ar_23/decomposed_output.json'
+    req_source = 'ar_23/data.json'
+    res_file = 'ar_23/decomposed_output_6_ds_3_2.json'
 
     all_decomposed_results = [] # 用于存储所有分解结果的列表
 
-    # 从JSON文件加载所有原始需求
-    print("\n" + "=" * 50)
-    
+    max_retry = 3
+
     print("步骤 1: 从JSON文件 {} 读取所有主需求...", req_source)
     all_original_requirements = utils.load_requirements_from_json(req_source, limit=None)
 
@@ -224,29 +224,27 @@ async def main():
             print(f"[WARNING] 发现无效的需求项 (row: {row_num}, req: {main_requirement})，跳过。")
             continue
 
-        print("\n" + "#" * 60)
         print(f"开始处理第 {row_num} 行的需求...")
-        print("#" * 60)
 
-        # 2. 执行分解
-        print("\n" + "=" * 50)
-        print("步骤 2: 开始执行需求分解...")
-        decomposed_list = await decompose_requirement(
-            original_requirement=main_requirement,
-            rules=decomposition_rules,
-            specific_instruction=format_instruction,
-        )
 
-        # 3. 处理结果
-        if decomposed_list:
-            # 将当前行的分解结果添加到列表中
-            all_decomposed_results.append({
-                "row_number": row_num,
-                "decomposed_list": decomposed_list
-            })
-            print(f"第 {row_num} 行的需求分解结果已收集。")
-        else:
-            print(f"\n未能为第 {row_num} 行获取有效的需求分解结果。")
+        for i in range(max_retry):
+            decomposed_list = await decompose_requirement(
+                original_requirement=main_requirement,
+                rules=decomposition_rules,
+                specific_instruction=format_instruction,
+            )
+
+            # 3. 处理结果
+            if decomposed_list:
+                # 将当前行的分解结果添加到列表中
+                all_decomposed_results.append({
+                    "row_number": row_num,
+                    "decomposed_list": decomposed_list
+                })
+                print(f"第 {row_num} 行的需求分解结果已收集 retry={i}")
+                break
+            else:
+                print(f"\n未能为第 {row_num} 行获取有效的需求分解结果。 retry={i}")
 
     # 循环结束后，将所有结果保存到一个JSON文件
     if all_decomposed_results:
