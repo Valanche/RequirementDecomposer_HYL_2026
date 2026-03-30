@@ -87,7 +87,7 @@ async def consistency_loop(
         "consistency_evaluation": evaluation_result
     }    
 
-async def feasibility_loop(
+async def feasibility_judge(
     original_requirement: str,
     # decomposition_rules: List[str],
     feasibility_rules: List[str],
@@ -157,7 +157,7 @@ async def consistency_and_feasibility_loop(
         sub_reqs = decomposed_list["result_list"]
         
         for sub_req in sub_reqs:
-            feasibility_result = await feasibility_loop(sub_req["description"], input_feasibility_rules)
+            feasibility_result = await feasibility_judge(sub_req["description"], input_feasibility_rules)
             sub_req["feasibility_evaluation"] = feasibility_result["feasibility_evaluation"]   
             
             if feasibility_result["need_decomposition"] and depth_allowed >= 1:
