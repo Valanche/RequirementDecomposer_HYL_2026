@@ -222,3 +222,6 @@ ar_23/ar_descriptions_ref.json
 ar_23/ar_descriptions*.json
 ar_23/decomposed_output*.json
 ar_23/evaluation_output*.json
+
+# test files
+test/

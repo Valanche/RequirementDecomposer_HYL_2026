@@ -1,0 +1,90 @@
+{
+    "type": "object",
+    "properties": {
+        "supplemented_demand": {
+            "type": "object",
+            "properties": {
+                "demand_value": {
+                    "type": "string"
+                },
+                "demand_scenario": {
+                    "type": "string"
+                },
+                "demand_description": {
+                    "type": "string"
+                },
+                "target_users": {
+                    "type": "string"
+                },
+                "constraints": {
+                    "type": "string"
+                },
+                "external_dependencies": {
+                    "type": "string"
+                },
+                "performance_metrics": {
+                    "type": "string"
+                },
+                "rom_ram": {
+                    "type": "string"
+                },
+                "acceptance_criteria": {
+                    "type": "string"
+                },
+                "acceptance_devices": {
+                    "type": "string"
+                },
+                "product_difference_analysis": {
+                    "type": "string"
+                },
+                "ecosystem_impact": {
+                    "type": "string"
+                }
+            },
+            "required": [
+                "demand_value",
+                "demand_scenario",
+                "demand_description",
+                "target_users",
+                "constraints",
+                "external_dependencies",
+                "performance_metrics",
+                "rom_ram",
+                "acceptance_criteria",
+                "acceptance_devices",
+                "product_difference_analysis",
+                "ecosystem_impact"
+            ]
+        },
+        "key_points_added": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "evidence": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "confidence_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+        },
+        "questions_for_user": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        }
+    },
+    "required": [
+        "supplemented_demand",
+        "key_points_added",
+        "evidence",
+        "confidence_score",
+        "questions_for_user"
+    ]
+}

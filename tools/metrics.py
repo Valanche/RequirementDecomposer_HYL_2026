@@ -29,7 +29,7 @@ if __name__ == '__main__':
     predictions_map = load_descriptions('ar_23/ar_descriptions_1.json')
     references_map = load_descriptions('ar_23/ar_descriptions_ref.json')
     print("数据加载完毕。")
-    
+    output_file_path = 'ar_23/all_scores_6_2.json'
     # 2. 对齐数据
     predictions_raw = []
     references_raw = []
@@ -117,7 +117,7 @@ if __name__ == '__main__':
                 "average_scores": combined_average_scores
             }
 
-            output_file_path = 'ar_23/all_scores_1.json'
+            
             with open(output_file_path, 'w', encoding='utf-8') as f:
                 json.dump(output_data, f, ensure_ascii=False, indent=2)
             
