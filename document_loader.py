@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
+import logging
 import os
 from typing import List
 from langchain_community.document_loaders import PyPDFLoader
 
+logger = logging.getLogger("document_loader")
 
 class DocumentLoader:
     def __init__(self, custom_loader_map:map = None):
@@ -48,6 +50,6 @@ class DocumentLoader:
                 content = self.load_document(file_path)
                 contents.append(f"=== 文档: {os.path.basename(file_path)} ===\n{content}")
             except Exception as e:
-                print(f"加载文档 {file_path} 失败: {e}")
+                logger.exception(f"加载文档 {file_path} 失败")
         
         return "\n\n".join(contents)

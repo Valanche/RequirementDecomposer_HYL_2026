@@ -18,6 +18,51 @@ class DemandBody(BaseModel):
     product_difference_analysis: str = Field(description="使用产品差异分析：该需求在不同设备或平台上的使用行为差异；如无差异，需明确说明")
     ecosystem_impact: str = Field(description="2D生态：该需求对面向开发者的软件生态建设可能产生的影响")
 
+    def to_ar_format(self) -> str:
+        """
+        将补充后的需求对象格式化为指定的文本格式(AR)
+        Returns:
+            AR格式化后的需求文本
+        """
+        
+        formatted = f"""【需求价值】
+            {self.demand_value}
+
+            【需求场景】
+            {self.demand_scenario}
+
+            【需求描述】
+            {self.demand_description}
+
+            【目标用户】
+            {self.target_users}
+
+            【限制约束】
+            {self.constraints}
+
+            【外部依赖】
+            {self.external_dependencies}
+
+            【性能指标】
+            {self.performance_metrics}
+
+            【ROM&RAM】
+            {self.rom_ram}
+
+            【验收标准】
+            {self.acceptance_criteria}
+
+            【验收设备】
+            {self.acceptance_devices}
+
+            【使用产品差异分析】
+            {self.product_difference_analysis}
+
+            【2D生态】
+            {self.ecosystem_impact}
+            """
+        return formatted.strip()
+
 class SupplementResult(BaseModel):
     """需求补充的完整输出结果"""
     supplemented_demand: DemandBody = Field(description="补充后的完整需求本体")

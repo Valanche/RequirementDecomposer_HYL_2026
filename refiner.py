@@ -15,6 +15,13 @@ from document_loader import DocumentLoader
 
 load_dotenv()
 logger = logging.getLogger("refiner")
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='app.log',  # 输出到文件
+    filemode='a',  # 'a'表示追加，'w'表示覆盖
+    encoding='utf-8'
+)
 
 # --- LangChain Model and Prompt Definition ---
 
@@ -26,31 +33,46 @@ llm = ChatOpenAI(
 )
 
 schema_file_path = "models/supplement_req.json"
+format_file_path = "req_format.txt"
 with open(schema_file_path, 'r', encoding='utf-8') as f:
     output_schema = json.load(f)
+with open(format_file_path, 'r', encoding='utf-8') as f:
+    REQ_FORMAT_CONTENT = f.read()
     
 # 转换为格式化的 JSON 字符串
 schema_str = json.dumps(output_schema, ensure_ascii=False, indent=2)
 
 JSON_SCHEMA_DEFINITION = schema_str.replace('{', '{{').replace('}', '}}')
 
-REFINEMENT_SYSTEM_PROMPT = textwrap.dedent("""
-        你是一个专业的产品需求分析师，擅长从技术文档、需求文档、产品说明中提取关键信息，并将用户不完整的原始需求补充为完整、规范的需求。
+REFINEMENT_SYSTEM_PROMPT = f"""
+        你是一个专业的产品需求分析师，擅长从技术文档、需求文档、产品说明中提取关键信息，并将用户不完整的原始需求补充为完整、规范，满足用户要求的需求。
         你补充之后的的需求会被交给其他需求工程师进行分解和细化，因此补充的需求应当有尽量完整的上下文信息。
 
-        你的职责：
+        ## 你的职责：
         1. 深入理解用户提供的文档内容
         2. 识别原始需求中的缺失信息
         3. 从文档中提取相关细节进行补充
         4. 确保补充后的需求结构完整、逻辑清晰，包含完整的上下文信息。
 
-        补充原则：
+        ## 补充原则：
         - 保持原始需求的核心意图不变
         - 补充的内容必须有文档依据
         - 如果文档中存在矛盾或歧义，明确指出并询问
         - 对于无法从文档中获取的信息，合理推断并标注推断依据
         - 补充要点应具体、可衡量、可验证
-""")
+                                           
+        ## 输出格式：
+        你必须严格遵循以下需求格式定义和JSON Schema来构造你的输出。                
+       
+        --- 需求格式定义 ---
+        {REQ_FORMAT_CONTENT}
+        --- 需求格式定义结束 ---
+        --- JSON Schema定义 ---
+        ```json
+        {JSON_SCHEMA_DEFINITION}
+        ```
+        --- JSON Schema定义结束 ---
+"""
 
 def create_refinement_prompt(raw_req: str, docs: str, feedback: Optional[str]) -> ChatPromptTemplate:
     
@@ -81,11 +103,6 @@ def create_refinement_prompt(raw_req: str, docs: str, feedback: Optional[str]) -
     4. 补充的关键要点要具体，不要泛泛而谈
     5. 补充依据要明确引用文档的具体内容或说明推理逻辑
     6. 对于不确定的内容，放入 questions_for_user 中
-    
-    **JSON Schema定义：**
-    ```json
-    {JSON_SCHEMA_DEFINITION}
-    ```
 
     """
 
@@ -134,7 +151,8 @@ class DemandSupplementer:
         result = chain.invoke(
             {
                 "raw_req": original_request,
-                "docs": doc_content
+                "docs": doc_content,
+                "feedback": user_feedback if user_feedback else ""
             }
         )
         
@@ -175,6 +193,7 @@ def example_with_file():
     result = supplementer.supplement_from_files(
         original_request=original_request,
         file_paths=[
+            "test/test_data/doc_ds1.sbd",
             "test/test_data/doc_ds1_md.md"
         ]
     )
