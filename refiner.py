@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_openai import ChatOpenAI
 from models.supplement_req import SupplementResult
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader
+from document_loader import DocumentLoader
 
 
 load_dotenv()
@@ -25,7 +25,7 @@ llm = ChatOpenAI(
     temperature=0
 )
 
-schema_file_path = "../models/supplement_req.json"
+schema_file_path = "models/supplement_req.json"
 with open(schema_file_path, 'r', encoding='utf-8') as f:
     output_schema = json.load(f)
     
@@ -100,53 +100,14 @@ def create_refinement_prompt(raw_req: str, docs: str, feedback: Optional[str]) -
 
 class DemandSupplementer:
     
-    def __init__(self, model_name: str = "gpt-4", temperature: float = 0):
+    def __init__(self):
         self.llm = llm
         
         self.structured_llm = self.llm.with_structured_output(SupplementResult)
 
         # 文档加载器映射
-        self.loader_map = {
-            '.pdf': PyPDFLoader,
-            '.txt': None,
-            '.md': None,
-            '.MD': None,
-            '.mdx': None,
-            '.markdown': None
-        }
+        self.document_loader = DocumentLoader()
 
-    def load_document(self, file_path: str) -> str:
-        """加载文档内容"""
-        ext = os.path.splitext(file_path)[1].lower()
-        
-        if ext not in self.loader_map:
-            raise ValueError(f"不支持的文件格式: {ext}")
-        
-        # 特殊处理文本文件
-        if ext in ['.md', '.MD', '.mdx', '.markdown', '.txt']:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
-            
-        loader_cls = self.loader_map[ext]
-        
-        # 处理 PDF 和 Markdown
-        loader = loader_cls(file_path)
-        documents = loader.load()
-        
-        # 合并所有页面/文档内容
-        return "\n".join([doc.page_content for doc in documents])
-    
-    def load_multiple_documents(self, file_paths: List[str]) -> str:
-        """加载多个文档并合并"""
-        contents = []
-        for file_path in file_paths:
-            try:
-                content = self.load_document(file_path)
-                contents.append(f"=== 文档: {os.path.basename(file_path)} ===\n{content}")
-            except Exception as e:
-                print(f"加载文档 {file_path} 失败: {e}")
-        
-        return "\n\n".join(contents)
     
     def supplement_demand(
         self,
@@ -160,7 +121,7 @@ class DemandSupplementer:
         Args:
             original_request: 用户原始需求
             doc_content: 文档内容（可以是单个文档或合并后的多个文档）
-            additional_context: 额外的上下文信息
+            user_feedback: (用户提供的)额外的反馈/上下文信息
         
         Returns:
             SupplementResult: 包含补充后需求、补充要点、依据等
@@ -188,12 +149,13 @@ class DemandSupplementer:
         """从文件加载文档后补充需求"""
         
         # 加载文档
-        doc_content = self.load_multiple_documents(file_paths)
+        doc_content = self.document_loader.load_multiple_documents(file_paths)
         
         # 限制文档长度（避免超 token）
         max_chars = 10000
         if len(doc_content) > max_chars:
             doc_content = doc_content[:max_chars] + "\n\n[文档内容过长，已截断]"
+            logger.warning("文档内容过长，已截断")
         
         # 执行补充
         return self.supplement_demand(
@@ -201,3 +163,97 @@ class DemandSupplementer:
             doc_content=doc_content,
             user_feedback=additional_context
         )
+
+
+def example_with_file():
+    supplementer = DemandSupplementer()
+    
+    # 用户原始需求
+    with open('test/test_data/req_ds1.txt', 'r', encoding='utf-8') as file:
+        original_request = file.read()
+    # 补充需求
+    result = supplementer.supplement_from_files(
+        original_request=original_request,
+        file_paths=[
+            "test/test_data/doc_ds1_md.md"
+        ]
+    )
+    
+    # 输出补充后的需求
+    print("=" * 80)
+    print("【补充后的完整需求】")
+    print("=" * 80)
+    
+    demand = result.supplemented_demand
+    print(f"\n【需求价值】\n{demand.demand_value}")
+    print(f"\n【需求场景】\n{demand.demand_scenario}")
+    print(f"\n【需求描述】\n{demand.demand_description}")
+    print(f"\n【目标用户】\n{demand.target_users}")
+    print(f"\n【限制约束】\n{demand.constraints}")
+    print(f"\n【外部依赖】\n{demand.external_dependencies}")
+    print(f"\n【性能指标】\n{demand.performance_metrics}")
+    print(f"\n【ROM&RAM】\n{demand.rom_ram}")
+    print(f"\n【验收标准】\n{demand.acceptance_criteria}")
+    print(f"\n【验收设备】\n{demand.acceptance_devices}")
+    print(f"\n【使用产品差异分析】\n{demand.product_difference_analysis}")
+    print(f"\n【2D生态】\n{demand.ecosystem_impact}")
+    
+    # 输出补充要点
+    print("\n" + "=" * 80)
+    print("【补充的关键要点】")
+    print("=" * 80)
+    for i, point in enumerate(result.key_points_added, 1):
+        print(f"{i}. {point}")
+    
+    # 输出补充依据
+    print("\n" + "=" * 80)
+    print("【补充依据】")
+    print("=" * 80)
+    for i, evidence in enumerate(result.evidence, 1):
+        print(f"{i}. {evidence}")
+    
+    # 输出置信度和待确认问题
+    print(f"\n【置信度】: {result.confidence_score:.2%}")
+    
+    if result.questions_for_user:
+        print("\n【需要确认的问题】")
+        for i, question in enumerate(result.questions_for_user, 1):
+            print(f"{i}. {question}")
+    
+    return result
+
+
+# 示例2：直接传入文档内容
+def example_with_content():
+    supplementer = DemandSupplementer()
+
+    with open('test_data/req_ds1.txt', 'r', encoding='utf-8') as file:
+        original_request = file.read()
+        print(original_request)
+
+    with open('test_data/doc_ds1.txt', 'r', encoding='utf-8') as file:
+        doc_content = file.read()
+        print(doc_content)
+    
+    result = supplementer.supplement_demand(
+        original_request=original_request,
+        doc_content=doc_content
+    )
+    
+    return result
+
+
+# 执行示例
+if __name__ == "__main__":
+    # 运行示例
+    result = example_with_file()
+    
+    # 保存结果到 JSON
+    import json
+    
+    # 转换为字典并保存
+    result_dict = result.model_dump()
+    with open("test/test_results/supplemented_demand_md.json", "w+", encoding="utf-8") as f:
+        json.dump(result_dict, f, ensure_ascii=False, indent=2)
+    
+    print("\n结果已保存到 supplemented_demand.json")

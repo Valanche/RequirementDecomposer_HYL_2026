@@ -9,14 +9,6 @@ import textwrap
 
 import utils
 
-# 新增的依赖，需要 pip install openpyxl
-try:
-    from openpyxl import load_workbook, Workbook
-    from openpyxl.utils.exceptions import InvalidFileException
-except ImportError:
-    print("[ERROR] openpyxl库未安装。请运行 'pip install openpyxl' 进行安装。")
-    exit(1)
-
 import openai
 from dotenv import load_dotenv
 
